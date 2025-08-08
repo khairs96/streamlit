@@ -1,0 +1,475 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+import requests
+import json
+
+# Page configuration
+st.set_page_config(
+    page_title="Multi-Feature Dashboard",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 4px solid #1f77b4;
+    }
+    .sidebar-header {
+        color: #1f77b4;
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Sidebar navigation
+st.sidebar.markdown('<p class="sidebar-header">📊 Navigation</p>', unsafe_allow_html=True)
+page = st.sidebar.selectbox("Choose a page:", [
+    "🏠 Home Dashboard",
+    "📈 Data Analytics",
+    "🔧 Interactive Tools",
+    "📋 Data Entry Form",
+    "🌍 API Integration",
+    "📊 Custom Charts"
+])
+
+# Initialize session state
+if 'data_entries' not in st.session_state:
+    st.session_state.data_entries = []
+
+if 'counter' not in st.session_state:
+    st.session_state.counter = 0
+
+# Helper function to generate sample data
+@st.cache_data
+def generate_sample_data():
+    np.random.seed(42)
+    dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+    data = {
+        'date': dates,
+        'sales': np.random.normal(1000, 200, len(dates)).cumsum(),
+        'customers': np.random.poisson(50, len(dates)),
+        'revenue': np.random.normal(5000, 1000, len(dates)),
+        'category': np.random.choice(['A', 'B', 'C', 'D'], len(dates)),
+        'region': np.random.choice(['North', 'South', 'East', 'West'], len(dates))
+    }
+    return pd.DataFrame(data)
+
+# Page 1: Home Dashboard
+if page == "🏠 Home Dashboard":
+    st.markdown('<h1 class="main-header">Multi-Feature Dashboard</h1>', unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Generate sample metrics
+    with col1:
+        st.metric(
+            label="Total Sales",
+            value="$1.2M",
+            delta="12.5%",
+            delta_color="normal"
+        )
+    
+    with col2:
+        st.metric(
+            label="Active Users",
+            value="45,230",
+            delta="-2.1%",
+            delta_color="inverse"
+        )
+    
+    with col3:
+        st.metric(
+            label="Conversion Rate",
+            value="3.4%",
+            delta="0.8%",
+            delta_color="normal"
+        )
+    
+    with col4:
+        st.metric(
+            label="Monthly Revenue",
+            value="$89,432",
+            delta="5.2%",
+            delta_color="normal"
+        )
+    
+    st.markdown("---")
+    
+    # Quick overview charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📈 Sales Trend")
+        df = generate_sample_data()
+        fig = px.line(df.tail(90), x='date', y='sales', title="Sales Over Last 90 Days")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.subheader("🎯 Category Distribution")
+        category_counts = df.groupby('category').size().reset_index(name='count')
+        fig = px.pie(category_counts, values='count', names='category', title="Sales by Category")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Recent activity
+    st.subheader("🕐 Recent Activity")
+    recent_data = df.tail(10)[['date', 'sales', 'customers', 'revenue', 'category']]
+    st.dataframe(recent_data, use_container_width=True)
+
+# Page 2: Data Analytics
+elif page == "📈 Data Analytics":
+    st.title("📈 Advanced Data Analytics")
+    
+    df = generate_sample_data()
+    
+    # Filters
+    st.sidebar.markdown("### 🔍 Filters")
+    date_range = st.sidebar.date_input(
+        "Select date range:",
+        value=(df['date'].min().date(), df['date'].max().date()),
+        min_value=df['date'].min().date(),
+        max_value=df['date'].max().date()
+    )
+    
+    categories = st.sidebar.multiselect(
+        "Select categories:",
+        options=df['category'].unique(),
+        default=df['category'].unique()
+    )
+    
+    regions = st.sidebar.multiselect(
+        "Select regions:",
+        options=df['region'].unique(),
+        default=df['region'].unique()
+    )
+    
+    # Filter data
+    filtered_df = df[
+        (df['date'].dt.date >= date_range[0]) &
+        (df['date'].dt.date <= date_range[1]) &
+        (df['category'].isin(categories)) &
+        (df['region'].isin(regions))
+    ]
+    
+    # Analytics
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        chart_type = st.selectbox("Choose chart type:", ["Line Chart", "Bar Chart", "Scatter Plot", "Heatmap"])
+        
+        if chart_type == "Line Chart":
+            fig = px.line(filtered_df, x='date', y='sales', color='region', title="Sales Trend by Region")
+        elif chart_type == "Bar Chart":
+            monthly_data = filtered_df.groupby([filtered_df['date'].dt.month, 'category']).agg({'sales': 'sum'}).reset_index()
+            fig = px.bar(monthly_data, x='date', y='sales', color='category', title="Monthly Sales by Category")
+        elif chart_type == "Scatter Plot":
+            fig = px.scatter(filtered_df, x='customers', y='revenue', color='category', 
+                           size='sales', title="Revenue vs Customers")
+        else:  # Heatmap
+            pivot_data = filtered_df.groupby(['region', 'category']).agg({'sales': 'mean'}).reset_index()
+            pivot_table = pivot_data.pivot(index='region', columns='category', values='sales')
+            fig = px.imshow(pivot_table, title="Average Sales Heatmap", color_continuous_scale='viridis')
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.subheader("📊 Summary Statistics")
+        st.write("**Total Records:**", len(filtered_df))
+        st.write("**Average Sales:**", f"${filtered_df['sales'].mean():,.2f}")
+        st.write("**Total Revenue:**", f"${filtered_df['revenue'].sum():,.2f}")
+        st.write("**Max Customers:**", f"{filtered_df['customers'].max():,}")
+        
+        st.subheader("🔢 Data Sample")
+        st.dataframe(filtered_df.head(), use_container_width=True)
+
+# Page 3: Interactive Tools
+elif page == "🔧 Interactive Tools":
+    st.title("🔧 Interactive Tools & Widgets")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🎛️ Control Panel")
+        
+        # Counter
+        if st.button("Increment Counter"):
+            st.session_state.counter += 1
+        st.write(f"Counter: {st.session_state.counter}")
+        
+        # Slider
+        value = st.slider("Select a value:", 0, 100, 50)
+        st.write(f"Current value: {value}")
+        
+        # Text input
+        user_text = st.text_input("Enter some text:")
+        if user_text:
+            st.write(f"You entered: {user_text.upper()}")
+        
+        # Color picker
+        color = st.color_picker("Pick a color:", "#1f77b4")
+        st.write(f"Selected color: {color}")
+        
+        # File uploader
+        uploaded_file = st.file_uploader("Upload a CSV file:", type=['csv'])
+        if uploaded_file is not None:
+            df_uploaded = pd.read_csv(uploaded_file)
+            st.write("File uploaded successfully!")
+            st.dataframe(df_uploaded.head())
+    
+    with col2:
+        st.subheader("📊 Interactive Visualization")
+        
+        # Dynamic chart based on user input
+        chart_data = np.random.randn(value, 3)
+        chart_df = pd.DataFrame(chart_data, columns=['A', 'B', 'C'])
+        
+        st.line_chart(chart_df)
+        
+        # Progress bar
+        if st.button("Run Progress Bar"):
+            progress_bar = st.progress(0)
+            for i in range(100):
+                progress_bar.progress(i + 1)
+                
+        # Success/Error messages
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Show Success"):
+                st.success("Operation completed successfully!")
+        with col_b:
+            if st.button("Show Warning"):
+                st.warning("This is a warning message!")
+
+# Page 4: Data Entry Form
+elif page == "📋 Data Entry Form":
+    st.title("📋 Data Entry Form")
+    
+    with st.form("data_entry_form"):
+        st.subheader("Enter New Record")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            name = st.text_input("Full Name:")
+            email = st.text_input("Email Address:")
+            age = st.number_input("Age:", min_value=18, max_value=100, value=25)
+            department = st.selectbox("Department:", ["Sales", "Marketing", "IT", "HR", "Finance"])
+        
+        with col2:
+            start_date = st.date_input("Start Date:")
+            salary = st.number_input("Salary ($):", min_value=30000, max_value=200000, value=50000)
+            experience = st.slider("Years of Experience:", 0, 30, 5)
+            skills = st.multiselect("Skills:", ["Python", "SQL", "Excel", "PowerBI", "Tableau", "R"])
+        
+        notes = st.text_area("Additional Notes:")
+        
+        submitted = st.form_submit_button("Submit Entry")
+        
+        if submitted:
+            new_entry = {
+                "timestamp": datetime.now(),
+                "name": name,
+                "email": email,
+                "age": age,
+                "department": department,
+                "start_date": start_date,
+                "salary": salary,
+                "experience": experience,
+                "skills": ", ".join(skills),
+                "notes": notes
+            }
+            
+            st.session_state.data_entries.append(new_entry)
+            st.success(f"Entry for {name} submitted successfully!")
+    
+    # Display submitted entries
+    if st.session_state.data_entries:
+        st.subheader("📝 Submitted Entries")
+        entries_df = pd.DataFrame(st.session_state.data_entries)
+        st.dataframe(entries_df, use_container_width=True)
+        
+        # Download button
+        csv = entries_df.to_csv(index=False)
+        st.download_button(
+            label="Download Data as CSV",
+            data=csv,
+            file_name="employee_data.csv",
+            mime="text/csv"
+        )
+
+# Page 5: API Integration
+elif page == "🌍 API Integration":
+    st.title("🌍 API Integration Examples")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🌤️ Weather Information")
+        city = st.text_input("Enter city name:", value="London")
+        
+        if st.button("Get Weather"):
+            try:
+                # Note: This is a mock example - you'd need an actual API key
+                st.info("This is a demo. In a real app, you'd integrate with a weather API.")
+                
+                # Mock weather data
+                weather_data = {
+                    "city": city,
+                    "temperature": np.random.randint(15, 35),
+                    "humidity": np.random.randint(40, 80),
+                    "condition": np.random.choice(["Sunny", "Cloudy", "Rainy", "Partly Cloudy"])
+                }
+                
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.metric("Temperature", f"{weather_data['temperature']}°C")
+                with col_b:
+                    st.metric("Humidity", f"{weather_data['humidity']}%")
+                with col_c:
+                    st.metric("Condition", weather_data['condition'])
+                    
+            except Exception as e:
+                st.error(f"Error fetching weather data: {str(e)}")
+    
+    with col2:
+        st.subheader("📊 Mock Stock Data")
+        symbol = st.selectbox("Select stock symbol:", ["AAPL", "GOOGL", "MSFT", "TSLA", "AMZN"])
+        
+        if st.button("Get Stock Data"):
+            # Mock stock data
+            dates = pd.date_range(start='2024-01-01', end='2024-12-31', freq='D')[-30:]
+            prices = 150 + np.cumsum(np.random.randn(30) * 2)
+            
+            stock_df = pd.DataFrame({
+                'Date': dates,
+                'Price': prices
+            })
+            
+            fig = px.line(stock_df, x='Date', y='Price', title=f'{symbol} Stock Price (Last 30 Days)')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.metric("Current Price", f"${prices[-1]:.2f}", f"{(prices[-1] - prices[-2]):.2f}")
+
+# Page 6: Custom Charts
+elif page == "📊 Custom Charts":
+    st.title("📊 Advanced Chart Gallery")
+    
+    # Generate sample data for charts
+    np.random.seed(42)
+    
+    chart_type = st.selectbox("Select chart type:", [
+        "3D Scatter Plot",
+        "Animated Bar Chart",
+        "Sunburst Chart",
+        "Violin Plot",
+        "Radar Chart"
+    ])
+    
+    if chart_type == "3D Scatter Plot":
+        df_3d = pd.DataFrame({
+            'x': np.random.randn(100),
+            'y': np.random.randn(100),
+            'z': np.random.randn(100),
+            'category': np.random.choice(['A', 'B', 'C'], 100)
+        })
+        fig = px.scatter_3d(df_3d, x='x', y='y', z='z', color='category', title="3D Scatter Plot")
+        st.plotly_chart(fig, use_container_width=True)
+        
+    elif chart_type == "Animated Bar Chart":
+        # Create sample time series data for animation
+        years = list(range(2020, 2025))
+        countries = ['USA', 'China', 'Japan', 'Germany', 'UK']
+        
+        data = []
+        for year in years:
+            for country in countries:
+                data.append({
+                    'year': year,
+                    'country': country,
+                    'value': np.random.randint(10, 100)
+                })
+        
+        df_anim = pd.DataFrame(data)
+        fig = px.bar(df_anim, x='country', y='value', animation_frame='year',
+                     title="Animated GDP by Country", range_y=[0, 100])
+        st.plotly_chart(fig, use_container_width=True)
+        
+    elif chart_type == "Sunburst Chart":
+        df_sun = pd.DataFrame({
+            'categories': ['Tech', 'Tech', 'Tech', 'Finance', 'Finance', 'Healthcare', 'Healthcare'],
+            'subcategories': ['Software', 'Hardware', 'AI', 'Banking', 'Insurance', 'Pharma', 'Medical Devices'],
+            'values': [50, 30, 40, 35, 25, 45, 20]
+        })
+        fig = px.sunburst(df_sun, path=['categories', 'subcategories'], values='values',
+                          title="Market Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+        
+    elif chart_type == "Violin Plot":
+        df_violin = pd.DataFrame({
+            'category': np.random.choice(['A', 'B', 'C'], 300),
+            'values': np.concatenate([
+                np.random.normal(0, 1, 100),
+                np.random.normal(2, 1.5, 100),
+                np.random.normal(-1, 0.5, 100)
+            ])
+        })
+        fig = px.violin(df_violin, y='values', x='category', title="Distribution Comparison")
+        st.plotly_chart(fig, use_container_width=True)
+        
+    elif chart_type == "Radar Chart":
+        categories = ['Sales', 'Marketing', 'Development', 'Customer Support', 'Admin']
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=[80, 90, 70, 85, 75],
+            theta=categories,
+            fill='toself',
+            name='Team A'
+        ))
+        
+        fig.add_trace(go.Scatterpolar(
+            r=[75, 85, 80, 70, 90],
+            theta=categories,
+            fill='toself',
+            name='Team B'
+        ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100]
+                )),
+            showlegend=True,
+            title="Team Performance Comparison"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+
+# Footer
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ℹ️ About")
+st.sidebar.info("This is a comprehensive Streamlit dashboard showcasing various features including data visualization, forms, API integration, and interactive widgets.")
+
+st.sidebar.markdown("**Built with:**")
+st.sidebar.markdown("- 🐍 Python")
+st.sidebar.markdown("- 📊 Streamlit") 
+st.sidebar.markdown("- 📈 Plotly")
+st.sidebar.markdown("- 🐼 Pandas")
